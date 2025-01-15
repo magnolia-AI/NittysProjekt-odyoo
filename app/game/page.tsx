@@ -23,6 +23,7 @@ export default function GamePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [gameStarted, setGameStarted] = useState(false)
   const [score, setScore] = useState(0)
+  const [lastJumpTime, setLastJumpTime] = useState(0)
   const [player, setPlayer] = useState<GameObject>({
     x: GAME_WIDTH / 2,
     y: GAME_HEIGHT - PLAYER_SIZE,
@@ -38,19 +39,30 @@ export default function GamePage() {
   const [keys, setKeys] = useState({
     ArrowLeft: false,
     ArrowRight: false,
-    " ": false, // Space key
+    " ": false,
   })
   useEffect(() => {
     if (!gameStarted) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key in keys) {
-        e.preventDefault() // Prevent page scrolling when pressing space
+        e.preventDefault()
+        if (e.key === " ") {
+          const currentTime = Date.now()
+          // Allow new jump if enough time has passed since last jump
+          if (currentTime - lastJumpTime > 100) { // 100ms cooldown between jumps
+            setLastJumpTime(currentTime)
+            setPlayer(prev => ({
+              ...prev,
+              velocityY: JUMP_FORCE
+            }))
+          }
+        }
         setKeys(prev => ({ ...prev, [e.key]: true }))
       }
     }
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key in keys) {
-        e.preventDefault() // Prevent page scrolling when pressing space
+        e.preventDefault()
         setKeys(prev => ({ ...prev, [e.key]: false }))
       }
     }
@@ -60,7 +72,7 @@ export default function GamePage() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [gameStarted])
+  }, [gameStarted, lastJumpTime])
   useEffect(() => {
     if (!gameStarted) return
     const gameLoop = setInterval(() => {
@@ -73,10 +85,6 @@ export default function GamePage() {
         if (keys.ArrowLeft) newVelocityX = -5
         else if (keys.ArrowRight) newVelocityX = 5
         else newVelocityX *= 0.8 // Friction
-        // Jump with spacebar
-        if (keys[" "] && prev.y === GAME_HEIGHT - PLAYER_SIZE) {
-          newVelocityY = JUMP_FORCE
-        }
         // Apply gravity
         newVelocityY += GRAVITY
         // Update position
@@ -85,6 +93,11 @@ export default function GamePage() {
         // Ground collision
         if (newY > GAME_HEIGHT - PLAYER_SIZE) {
           newY = GAME_HEIGHT - PLAYER_SIZE
+          newVelocityY = 0
+        }
+        // Ceiling collision
+        if (newY < 0) {
+          newY = 0
           newVelocityY = 0
         }
         // Wall collision
@@ -148,7 +161,7 @@ export default function GamePage() {
         {!gameStarted ? (
           <div className="text-center">
             <h1 className="text-3xl mb-4">Bomb Jack Clone</h1>
-            <p className="mb-4">Use arrow keys to move and SPACE to jump</p>
+            <p className="mb-4">Use arrow keys to move and SPACE to jump (press multiple times to multi-jump!)</p>
             <Button 
               onClick={() => setGameStarted(true)}
               className="bg-pink-500 hover:bg-pink-600"
