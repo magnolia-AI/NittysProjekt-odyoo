@@ -72,7 +72,6 @@ export default function GamePage() {
     velocityX: 0
   })
   const [currentLevel, setCurrentLevel] = useState<Level>(generateLevel(1))
-  // Load player sprite
   useEffect(() => {
     const img = new Image()
     img.src = PLAYER_SPRITE
@@ -102,7 +101,137 @@ export default function GamePage() {
     })
     setCurrentLevel(generateLevel(level + 1))
   }
-  // ... [Previous key handling code remains the same] ...
+  const [keys, setKeys] = useState({
+    ArrowLeft: false,
+    ArrowRight: false,
+    " ": false,
+  })
+  useEffect(() => {
+    if (!gameStarted || gameOver) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key in keys) {
+        e.preventDefault()
+        if (e.key === " ") {
+          const currentTime = Date.now()
+          if (currentTime - lastJumpTime > 100) {
+            setLastJumpTime(currentTime)
+            setPlayer(prev => ({
+              ...prev,
+              velocityY: JUMP_FORCE
+            }))
+          }
+        }
+        setKeys(prev => ({ ...prev, [e.key]: true }))
+      }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key in keys) {
+        e.preventDefault()
+        setKeys(prev => ({ ...prev, [e.key]: false }))
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [gameStarted, lastJumpTime, gameOver, keys])
+  useEffect(() => {
+    if (!gameStarted || gameOver) return
+    const gameLoop = setInterval(() => {
+      setPlayer(prev => {
+        let newX = prev.x
+        let newY = prev.y
+        let newVelocityY = prev.velocityY
+        let newVelocityX = prev.velocityX
+        if (keys.ArrowLeft) newVelocityX = -5
+        else if (keys.ArrowRight) newVelocityX = 5
+        else newVelocityX *= 0.8
+        newVelocityY += GRAVITY
+        newX += newVelocityX
+        newY += newVelocityY
+        if (newY > GAME_HEIGHT - PLAYER_SIZE) {
+          newY = GAME_HEIGHT - PLAYER_SIZE
+          newVelocityY = 0
+        }
+        if (newY < 0) {
+          newY = 0
+          newVelocityY = 0
+        }
+        if (newX < 0) newX = 0
+        if (newX > GAME_WIDTH - PLAYER_SIZE) newX = GAME_WIDTH - PLAYER_SIZE
+        return {
+          x: newX,
+          y: newY,
+          velocityY: newVelocityY,
+          velocityX: newVelocityX
+        }
+      })
+      setCurrentLevel(prevLevel => {
+        const updatedEnemies = prevLevel.enemies.map(enemy => {
+          let newX = enemy.x
+          let newY = enemy.y
+          let newVelocityX = enemy.velocityX
+          let newVelocityY = enemy.velocityY
+          switch (enemy.pattern) {
+            case 'horizontal':
+              newX += newVelocityX
+              if (newX <= 0 || newX >= GAME_WIDTH - ENEMY_SIZE) {
+                newVelocityX *= -1
+              }
+              break
+            case 'vertical':
+              newY += newVelocityY
+              if (newY <= 0 || newY >= GAME_HEIGHT - ENEMY_SIZE) {
+                newVelocityY *= -1
+              }
+              break
+            case 'chase':
+              newVelocityX = player.x > enemy.x ? 2 : -2
+              newVelocityY = player.y > enemy.y ? 2 : -2
+              newX += newVelocityX * 0.5
+              newY += newVelocityY * 0.5
+              break
+          }
+          return {
+            ...enemy,
+            x: newX,
+            y: newY,
+            velocityX: newVelocityX,
+            velocityY: newVelocityY
+          }
+        })
+        updatedEnemies.forEach(enemy => {
+          if (
+            player.x < enemy.x + ENEMY_SIZE &&
+            player.x + PLAYER_SIZE > enemy.x &&
+            player.y < enemy.y + ENEMY_SIZE &&
+            player.y + PLAYER_SIZE > enemy.y
+          ) {
+            setGameOver(true)
+          }
+        })
+        const updatedBombs = prevLevel.bombs.map(bomb => {
+          if (!bomb.collected &&
+              Math.abs(player.x - bomb.x) < PLAYER_SIZE &&
+              Math.abs(player.y - bomb.y) < PLAYER_SIZE) {
+            setScore(prev => prev + 100)
+            return { ...bomb, collected: true }
+          }
+          return bomb
+        })
+        if (updatedBombs.every(bomb => bomb.collected)) {
+          startNewLevel()
+        }
+        return {
+          bombs: updatedBombs,
+          enemies: updatedEnemies
+        }
+      })
+    }, 1000 / 60)
+    return () => clearInterval(gameLoop)
+  }, [gameStarted, keys, player, gameOver])
   useEffect(() => {
     if (!gameStarted || gameOver) return
     const canvas = canvasRef.current
@@ -142,13 +271,10 @@ export default function GamePage() {
         ctx.fillStyle = '#ff00ff'
         ctx.fillRect(enemy.x, enemy.y, ENEMY_SIZE, ENEMY_SIZE)
       })
-      if (!gameOver) {
-        requestAnimationFrame(render)
-      }
+      requestAnimationFrame(render)
     }
     render()
   }, [gameStarted, player, currentLevel, gameOver, level])
-  // ... [Rest of the game logic remains the same] ...
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-b from-zinc-900 to-black">
       <Card className="p-6 bg-zinc-800 text-white">
