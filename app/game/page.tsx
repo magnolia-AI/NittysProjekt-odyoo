@@ -6,6 +6,7 @@ const GAME_WIDTH = 800
 const GAME_HEIGHT = 600
 const PLAYER_SIZE = 30
 const BOMB_SIZE = 20
+const ENEMY_SIZE = 25
 const GRAVITY = 0.5
 const JUMP_FORCE = -12
 interface GameObject {
@@ -14,15 +15,54 @@ interface GameObject {
   velocityY: number
   velocityX: number
 }
+interface Enemy {
+  x: number
+  y: number
+  velocityX: number
+  velocityY: number
+  pattern: 'horizontal' | 'vertical' | 'chase'
+}
 interface Bomb {
   x: number
   y: number
   collected: boolean
 }
+interface Level {
+  bombs: Bomb[]
+  enemies: Enemy[]
+}
+const generateLevel = (levelNumber: number): Level => {
+  const bombs: Bomb[] = []
+  const enemies: Enemy[] = []
+    // Generate more bombs for each level
+  const bombCount = 4 + levelNumber * 2
+  for (let i = 0; i < bombCount; i++) {
+    bombs.push({
+      x: Math.random() * (GAME_WIDTH - BOMB_SIZE * 2) + BOMB_SIZE,
+      y: Math.random() * (GAME_HEIGHT - BOMB_SIZE * 2) + BOMB_SIZE,
+      collected: false
+    })
+  }
+  // Generate more enemies for each level
+  const enemyCount = Math.min(2 + Math.floor(levelNumber / 2), 6)
+  const patterns: ('horizontal' | 'vertical' | 'chase')[] = ['horizontal', 'vertical', 'chase']
+    for (let i = 0; i < enemyCount; i++) {
+    enemies.push({
+      x: Math.random() * (GAME_WIDTH - ENEMY_SIZE * 2) + ENEMY_SIZE,
+      y: Math.random() * (GAME_HEIGHT - ENEMY_SIZE * 2) + ENEMY_SIZE,
+      velocityX: (Math.random() * 2 + 2) * (Math.random() < 0.5 ? 1 : -1),
+      velocityY: (Math.random() * 2 + 2) * (Math.random() < 0.5 ? 1 : -1),
+      pattern: patterns[i % patterns.length]
+    })
+  }
+  return { bombs, enemies }
+}
 export default function GamePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [gameStarted, setGameStarted] = useState(false)
+  const [gameOver, setGameOver] = useState(false)
   const [score, setScore] = useState(0)
+  const [level, setLevel] = useState(1)
   const [lastJumpTime, setLastJumpTime] = useState(0)
   const [player, setPlayer] = useState<GameObject>({
     x: GAME_WIDTH / 2,
@@ -30,26 +70,42 @@ export default function GamePage() {
     velocityY: 0,
     velocityX: 0
   })
-    const [bombs, setBombs] = useState<Bomb[]>([
-    { x: 100, y: 300, collected: false },
-    { x: 300, y: 200, collected: false },
-    { x: 500, y: 400, collected: false },
-    { x: 700, y: 250, collected: false },
-  ])
+  const [currentLevel, setCurrentLevel] = useState<Level>(generateLevel(1))
+  const resetGame = () => {
+    setGameOver(false)
+    setScore(0)
+    setLevel(1)
+    setPlayer({
+      x: GAME_WIDTH / 2,
+      y: GAME_HEIGHT - PLAYER_SIZE,
+      velocityY: 0,
+      velocityX: 0
+    })
+    setCurrentLevel(generateLevel(1))
+  }
+  const startNewLevel = () => {
+    setLevel(prev => prev + 1)
+    setPlayer({
+      x: GAME_WIDTH / 2,
+      y: GAME_HEIGHT - PLAYER_SIZE,
+      velocityY: 0,
+      velocityX: 0
+    })
+    setCurrentLevel(generateLevel(level + 1))
+  }
   const [keys, setKeys] = useState({
     ArrowLeft: false,
     ArrowRight: false,
     " ": false,
   })
   useEffect(() => {
-    if (!gameStarted) return
+    if (!gameStarted || gameOver) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key in keys) {
         e.preventDefault()
         if (e.key === " ") {
           const currentTime = Date.now()
-          // Allow new jump if enough time has passed since last jump
-          if (currentTime - lastJumpTime > 100) { // 100ms cooldown between jumps
+          if (currentTime - lastJumpTime > 100) {
             setLastJumpTime(currentTime)
             setPlayer(prev => ({
               ...prev,
@@ -72,52 +128,32 @@ export default function GamePage() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [gameStarted, lastJumpTime])
+  }, [gameStarted, lastJumpTime, gameOver])
   useEffect(() => {
-    if (!gameStarted) return
+    if (!gameStarted || gameOver) return
     const gameLoop = setInterval(() => {
+      // Update player
       setPlayer(prev => {
         let newX = prev.x
         let newY = prev.y
         let newVelocityY = prev.velocityY
         let newVelocityX = prev.velocityX
-        // Horizontal movement
         if (keys.ArrowLeft) newVelocityX = -5
         else if (keys.ArrowRight) newVelocityX = 5
-        else newVelocityX *= 0.8 // Friction
-        // Apply gravity
+        else newVelocityX *= 0.8
         newVelocityY += GRAVITY
-        // Update position
         newX += newVelocityX
         newY += newVelocityY
-        // Ground collision
         if (newY > GAME_HEIGHT - PLAYER_SIZE) {
           newY = GAME_HEIGHT - PLAYER_SIZE
           newVelocityY = 0
         }
-        // Ceiling collision
         if (newY < 0) {
           newY = 0
           newVelocityY = 0
         }
-        // Wall collision
         if (newX < 0) newX = 0
         if (newX > GAME_WIDTH - PLAYER_SIZE) newX = GAME_WIDTH - PLAYER_SIZE
-        // Check bomb collection
-        setBombs(prevBombs => {
-          let updated = false
-          const newBombs = prevBombs.map(bomb => {
-            if (!bomb.collected &&
-                Math.abs(newX - bomb.x) < PLAYER_SIZE &&
-                Math.abs(newY - bomb.y) < PLAYER_SIZE) {
-              updated = true
-              setScore(prev => prev + 100)
-              return { ...bomb, collected: true }
-            }
-            return bomb
-          })
-          return updated ? newBombs : prevBombs
-        })
         return {
           x: newX,
           y: newY,
@@ -125,9 +161,75 @@ export default function GamePage() {
           velocityX: newVelocityX
         }
       })
-    }, 1000 / 60) // 60 FPS
+      // Update enemies
+      setCurrentLevel(prevLevel => {
+        const updatedEnemies = prevLevel.enemies.map(enemy => {
+          let newX = enemy.x
+          let newY = enemy.y
+          let newVelocityX = enemy.velocityX
+          let newVelocityY = enemy.velocityY
+          switch (enemy.pattern) {
+            case 'horizontal':
+              newX += newVelocityX
+              if (newX <= 0 || newX >= GAME_WIDTH - ENEMY_SIZE) {
+                newVelocityX *= -1
+              }
+              break
+            case 'vertical':
+              newY += newVelocityY
+              if (newY <= 0 || newY >= GAME_HEIGHT - ENEMY_SIZE) {
+                newVelocityY *= -1
+              }
+              break
+            case 'chase':
+              // Simple chase logic
+              newVelocityX = player.x > enemy.x ? 2 : -2
+              newVelocityY = player.y > enemy.y ? 2 : -2
+              newX += newVelocityX * 0.5
+              newY += newVelocityY * 0.5
+              break
+          }
+          return {
+            ...enemy,
+            x: newX,
+            y: newY,
+            velocityX: newVelocityX,
+            velocityY: newVelocityY
+          }
+        })
+        // Check collisions with enemies
+        updatedEnemies.forEach(enemy => {
+          if (
+            player.x < enemy.x + ENEMY_SIZE &&
+            player.x + PLAYER_SIZE > enemy.x &&
+            player.y < enemy.y + ENEMY_SIZE &&
+            player.y + PLAYER_SIZE > enemy.y
+          ) {
+            setGameOver(true)
+          }
+        })
+        // Check bomb collection
+        const updatedBombs = prevLevel.bombs.map(bomb => {
+          if (!bomb.collected &&
+              Math.abs(player.x - bomb.x) < PLAYER_SIZE &&
+              Math.abs(player.y - bomb.y) < PLAYER_SIZE) {
+            setScore(prev => prev + 100)
+            return { ...bomb, collected: true }
+          }
+          return bomb
+        })
+        // Check if level is complete
+        if (updatedBombs.every(bomb => bomb.collected)) {
+          startNewLevel()
+        }
+        return {
+          bombs: updatedBombs,
+          enemies: updatedEnemies
+        }
+      })
+    }, 1000 / 60)
     return () => clearInterval(gameLoop)
-  }, [gameStarted, keys])
+  }, [gameStarted, keys, player, gameOver])
   useEffect(() => {
     if (!gameStarted) return
     const canvas = canvasRef.current
@@ -142,7 +244,7 @@ export default function GamePage() {
       ctx.fillStyle = '#ff0000'
       ctx.fillRect(player.x, player.y, PLAYER_SIZE, PLAYER_SIZE)
       // Draw bombs
-      bombs.forEach(bomb => {
+      currentLevel.bombs.forEach(bomb => {
         if (!bomb.collected) {
           ctx.fillStyle = '#ffff00'
           ctx.beginPath()
@@ -150,23 +252,49 @@ export default function GamePage() {
           ctx.fill()
         }
       })
-      requestAnimationFrame(render)
+      // Draw enemies
+      currentLevel.enemies.forEach(enemy => {
+        ctx.fillStyle = '#ff00ff'
+        ctx.fillRect(enemy.x, enemy.y, ENEMY_SIZE, ENEMY_SIZE)
+      })
+      if (!gameOver) {
+        requestAnimationFrame(render)
+      }
     }
     render()
-  }, [gameStarted, player, bombs])
+  }, [gameStarted, player, currentLevel, gameOver])
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-b from-zinc-900 to-black">
       <Card className="p-6 bg-zinc-800 text-white">
-        <div className="text-2xl mb-4">Score: {score}</div>
+        <div className="flex justify-between mb-4">
+          <div className="text-2xl">Score: {score}</div>
+          <div className="text-2xl">Level: {level}</div>
+        </div>
         {!gameStarted ? (
           <div className="text-center">
             <h1 className="text-3xl mb-4">Bomb Jack Clone</h1>
             <p className="mb-4">Use arrow keys to move and SPACE to jump (press multiple times to multi-jump!)</p>
+            <p className="mb-4">Collect yellow bombs and avoid pink enemies!</p>
             <Button 
               onClick={() => setGameStarted(true)}
               className="bg-pink-500 hover:bg-pink-600"
             >
               Start Game
+            </Button>
+          </div>
+        ) : gameOver ? (
+          <div className="text-center">
+            <h2 className="text-3xl mb-4">Game Over!</h2>
+            <p className="mb-4">Final Score: {score}</p>
+            <p className="mb-4">Reached Level: {level}</p>
+            <Button 
+              onClick={() => {
+                resetGame()
+                setGameStarted(true)
+              }}
+              className="bg-pink-500 hover:bg-pink-600"
+            >
+              Play Again
             </Button>
           </div>
         ) : (
